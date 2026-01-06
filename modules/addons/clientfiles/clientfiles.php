@@ -2,7 +2,7 @@
 /**
  * Client Files Addon for WHMCS
  * Uses elFinder file manager (GPL)
- * Version 2.1.0
+ * Version 2.0.0
  */
 
 if (!defined("WHMCS")) {
@@ -16,7 +16,7 @@ function clientfiles_config()
     return [
         'name' => 'Client Files',
         'description' => 'Allow clients to upload and manage files using elFinder file manager.',
-        'version' => '2.1.0',
+        'version' => '2.0.0',
         'author' => 'WebJIVE',
         'language' => 'english',
         'fields' => [
@@ -46,7 +46,7 @@ function clientfiles_config()
                 'Type' => 'text',
                 'Size' => '10',
                 'Default' => '500',
-                'Description' => 'Default maximum storage per client in MB (0 = unlimited). Can be overridden per client.',
+                'Description' => 'Default storage limit for new clients (0 = unlimited). Manage per-client limits from the addon page.',
             ],
         ],
     ];
@@ -64,7 +64,6 @@ function clientfiles_activate()
                 $table->timestamp('created_at')->useCurrent();
             });
         } else {
-            // Add max_storage_mb column if it doesn't exist
             if (!Capsule::schema()->hasColumn('mod_clientfiles_access', 'max_storage_mb')) {
                 Capsule::schema()->table('mod_clientfiles_access', function ($table) {
                     $table->integer('max_storage_mb')->nullable()->after('enabled');
@@ -93,18 +92,13 @@ function clientfiles_deactivate()
     return ['status' => 'success', 'description' => 'Addon deactivated. Database tables preserved.'];
 }
 
-function clientfiles_upgrade($vars)
+function getDefaultMaxStorage()
 {
-    $version = $vars['version'];
-    
-    // Upgrade to 2.1.0 - add max_storage_mb column
-    if (version_compare($version, '2.1.0', '<')) {
-        if (!Capsule::schema()->hasColumn('mod_clientfiles_access', 'max_storage_mb')) {
-            Capsule::schema()->table('mod_clientfiles_access', function ($table) {
-                $table->integer('max_storage_mb')->nullable()->after('enabled');
-            });
-        }
-    }
+    $val = Capsule::table('tbladdonmodules')
+        ->where('module', 'clientfiles')
+        ->where('setting', 'default_max_storage')
+        ->value('value');
+    return $val !== null ? (int)$val : 500;
 }
 
 function clientfiles_output($vars)
@@ -112,30 +106,31 @@ function clientfiles_output($vars)
     $action = isset($_REQUEST['action']) ? $_REQUEST['action'] : '';
     $clientId = isset($_REQUEST['client_id']) ? (int)$_REQUEST['client_id'] : 0;
     
-    // Handle create action
     if ($action === 'create' && $clientId > 0) {
         createClientFileArea($clientId, $vars);
         header('Location: clientssummary.php?userid=' . $clientId . '&cfmsg=created');
         exit;
     }
     
-    // Handle delete action
     if ($action === 'delete' && $clientId > 0) {
         deleteClientFileArea($clientId, $vars);
         header('Location: clientssummary.php?userid=' . $clientId . '&cfmsg=deleted');
         exit;
     }
     
-    // Handle view files action - show admin file browser
     if ($action === 'viewfiles' && $clientId > 0) {
         outputAdminFileBrowser($clientId, $vars);
         return;
     }
     
-    // Handle update storage limit
+    // Handle update storage limit for individual client
     if ($action === 'updatelimit' && $clientId > 0) {
-        $newLimit = isset($_REQUEST['max_storage_mb']) ? (int)$_REQUEST['max_storage_mb'] : null;
-        if ($newLimit === 0) $newLimit = null; // Use global default
+        $newLimit = isset($_REQUEST['max_storage_mb']) ? trim($_REQUEST['max_storage_mb']) : '';
+        if ($newLimit === '') {
+            $newLimit = null; // Use global default
+        } else {
+            $newLimit = (int)$newLimit;
+        }
         Capsule::table('mod_clientfiles_access')
             ->where('client_id', $clientId)
             ->update(['max_storage_mb' => $newLimit]);
@@ -143,13 +138,25 @@ function clientfiles_output($vars)
         exit;
     }
     
-    // Default: show management interface
+    // Handle update global default
+    if ($action === 'updateglobal') {
+        $newDefault = isset($_REQUEST['default_max_storage']) ? (int)$_REQUEST['default_max_storage'] : 500;
+        
+        // Update the addon setting
+        Capsule::table('tbladdonmodules')
+            ->where('module', 'clientfiles')
+            ->where('setting', 'default_max_storage')
+            ->update(['value' => $newDefault]);
+        
+        header('Location: addonmodules.php?module=clientfiles&globalupdated=1');
+        exit;
+    }
+    
     outputManagementPage($vars);
 }
 
 function outputAdminFileBrowser($clientId, $vars)
 {
-    // Get client info
     $client = Capsule::table('tblclients')
         ->where('id', $clientId)
         ->first();
@@ -164,7 +171,6 @@ function outputAdminFileBrowser($clientId, $vars)
     echo '<h2><i class="fas fa-folder-open"></i> Files for ' . $clientName . ' (#' . $clientId . ')</h2>';
     echo '<p><a href="clientssummary.php?userid=' . $clientId . '" class="btn btn-default"><i class="fas fa-arrow-left"></i> Back to Client Summary</a></p>';
     
-    // elFinder CSS
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.min.css">';
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/elfinder/2.1.64/css/elfinder.min.css">';
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/elfinder/2.1.64/css/theme.css">';
@@ -173,7 +179,6 @@ function outputAdminFileBrowser($clientId, $vars)
     
     echo '<div id="elfinder-admin"></div>';
     
-    // elFinder JS
     echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>';
     echo '<script src="https://cdnjs.cloudflare.com/ajax/libs/elfinder/2.1.64/js/elfinder.min.js"></script>';
     
@@ -205,15 +210,45 @@ function outputAdminFileBrowser($clientId, $vars)
 
 function outputManagementPage($vars)
 {
-    $defaultMaxStorage = isset($vars['default_max_storage']) ? (int)$vars['default_max_storage'] : 500;
+    // Always fetch fresh from database
+    $defaultMaxStorage = getDefaultMaxStorage();
+    $storagePath = isset($vars['storage_path']) ? $vars['storage_path'] : 'client_files';
     
-    // Show success message if limit was updated
+    // Show success messages
     if (isset($_GET['updated'])) {
         echo '<div class="alert alert-success"><i class="fas fa-check"></i> Storage limit updated for client #' . (int)$_GET['updated'] . '</div>';
     }
+    if (isset($_GET['globalupdated'])) {
+        echo '<div class="alert alert-success"><i class="fas fa-check"></i> Global default storage limit updated to ' . $defaultMaxStorage . ' MB.</div>';
+    }
     
     echo '<h2>Client Files Management</h2>';
-    echo '<p>Manage client file areas and storage limits. Default storage limit: <strong>' . ($defaultMaxStorage > 0 ? $defaultMaxStorage . ' MB' : 'Unlimited') . '</strong></p>';
+    
+    // Global default setting box
+    echo '<div class="panel panel-default">';
+    echo '<div class="panel-heading"><h3 class="panel-title"><i class="fas fa-cog"></i> Global Settings</h3></div>';
+    echo '<div class="panel-body">';
+    echo '<form method="post" action="addonmodules.php?module=clientfiles&action=updateglobal" class="form-inline">';
+    echo '<label>Default Storage Limit (MB): ';
+    echo '<input type="number" name="default_max_storage" value="' . $defaultMaxStorage . '" class="form-control" style="width:100px;margin:0 10px;" min="0">';
+    echo '</label>';
+    echo '<button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Default</button>';
+    echo ' <small class="text-muted" style="margin-left:15px;">This applies to all clients with blank limit below. Set to 0 for unlimited.</small>';
+    echo '</form>';
+    echo '</div>';
+    echo '</div>';
+    
+    // Count clients using default vs custom
+    $clientsUsingDefault = Capsule::table('mod_clientfiles_access')
+        ->where('enabled', 1)
+        ->whereNull('max_storage_mb')
+        ->count();
+    $clientsWithCustom = Capsule::table('mod_clientfiles_access')
+        ->where('enabled', 1)
+        ->whereNotNull('max_storage_mb')
+        ->count();
+    
+    echo '<p><strong>' . $clientsUsingDefault . '</strong> client(s) using default (' . $defaultMaxStorage . ' MB), <strong>' . $clientsWithCustom . '</strong> with custom limits.</p>';
     
     $clients = Capsule::table('mod_clientfiles_access')
         ->join('tblclients', 'mod_clientfiles_access.client_id', '=', 'tblclients.id')
@@ -227,16 +262,17 @@ function outputManagementPage($vars)
     echo '<tbody>';
     
     foreach ($clients as $client) {
-        $storagePath = ROOTDIR . '/' . $vars['storage_path'] . '/' . $client->id;
-        $sizeBytes = getDirectorySize($storagePath);
+        $clientStoragePath = ROOTDIR . '/' . $storagePath . '/' . $client->id;
+        $sizeBytes = getDirectorySize($clientStoragePath);
         $sizeMB = round($sizeBytes / 1024 / 1024, 2);
         
-        // Determine effective limit
-        $effectiveLimit = $client->max_storage_mb !== null ? $client->max_storage_mb : $defaultMaxStorage;
-        $limitDisplay = $client->max_storage_mb !== null ? $client->max_storage_mb : '';
+        // Check if custom or using default - NULL means using default
+        $isCustom = ($client->max_storage_mb !== null);
+        $effectiveLimit = $isCustom ? (int)$client->max_storage_mb : $defaultMaxStorage;
         
         // Calculate usage percentage
         $usageClass = '';
+        $usagePercent = 0;
         if ($effectiveLimit > 0) {
             $usagePercent = ($sizeMB / $effectiveLimit) * 100;
             if ($usagePercent >= 90) {
@@ -252,14 +288,21 @@ function outputManagementPage($vars)
         echo '<td>' . formatBytes($sizeBytes) . '</td>';
         echo '<td>';
         echo '<form method="post" action="addonmodules.php?module=clientfiles&action=updatelimit&client_id=' . $client->id . '" class="form-inline" style="display:inline;">';
-        echo '<input type="number" name="max_storage_mb" value="' . $limitDisplay . '" class="form-control" style="width:80px;" min="0" placeholder="' . $defaultMaxStorage . '">';
-        echo ' <button type="submit" class="btn btn-xs btn-default" title="Save"><i class="fas fa-save"></i></button>';
-        echo '</form>';
-        if ($effectiveLimit > 0) {
-            echo ' <small class="text-muted">(' . round($usagePercent, 1) . '% used)</small>';
+        // Only show value if custom, otherwise leave blank with placeholder
+        if ($isCustom) {
+            echo '<input type="number" name="max_storage_mb" value="' . (int)$client->max_storage_mb . '" class="form-control" style="width:80px;" min="0">';
+            echo ' <button type="submit" class="btn btn-xs btn-default" title="Save"><i class="fas fa-save"></i></button>';
+            if ($effectiveLimit > 0) {
+                echo ' <small class="text-muted">(' . round($usagePercent, 1) . '%, custom)</small>';
+            } else {
+                echo ' <small class="text-muted">(unlimited, custom)</small>';
+            }
         } else {
-            echo ' <small class="text-muted">(unlimited)</small>';
+            echo '<input type="number" name="max_storage_mb" value="" class="form-control" style="width:80px;background:#f5f5f5;" min="0" placeholder="default">';
+            echo ' <button type="submit" class="btn btn-xs btn-default" title="Save"><i class="fas fa-save"></i></button>';
+            echo ' <small class="text-muted">(' . round($usagePercent, 1) . '%, using ' . $defaultMaxStorage . ' MB default)</small>';
         }
+        echo '</form>';
         echo '</td>';
         echo '<td>';
         echo '<a href="addonmodules.php?module=clientfiles&action=viewfiles&client_id=' . $client->id . '" class="btn btn-xs btn-primary" title="View Files"><i class="fas fa-folder-open"></i></a> ';
@@ -273,6 +316,8 @@ function outputManagementPage($vars)
     if (count($clients) === 0) {
         echo '<p class="text-muted">No clients have file areas yet.</p>';
     }
+    
+    echo '<p class="text-muted"><small>Leave blank to use the global default. Enter a number to set a custom limit for that client.</small></p>';
     
     echo '<hr><h3>Look Up Client</h3>';
     echo '<form method="get" action="clientssummary.php" class="form-inline">';
@@ -302,7 +347,8 @@ function createClientFileArea($clientId, $vars)
     if ($existing) {
         Capsule::table('mod_clientfiles_access')->where('client_id', $clientId)->update(['enabled' => 1]);
     } else {
-        Capsule::table('mod_clientfiles_access')->insert(['client_id' => $clientId, 'enabled' => 1]);
+        // New clients get NULL - they use the global default
+        Capsule::table('mod_clientfiles_access')->insert(['client_id' => $clientId, 'enabled' => 1, 'max_storage_mb' => null]);
     }
 }
 

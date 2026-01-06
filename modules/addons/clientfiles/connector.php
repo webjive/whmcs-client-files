@@ -79,15 +79,8 @@ $isOverQuota = ($maxStorageMB > 0 && $currentUsageMB >= ($maxStorageMB - 1));
 
 require_once __DIR__ . '/elfinder/php/autoload.php';
 
-// Build upload options
-$uploadOpts = [
-    'maxSize' => $maxFileSize . 'M',
-];
-
-// If over quota, set maxSize to 0 to disable uploads
-if ($isOverQuota) {
-    $uploadOpts['maxSize'] = 0;
-}
+// Build upload options - if over quota, set maxSize to 0 to disable uploads
+$uploadMaxSize = $isOverQuota ? 0 : ($maxFileSize . 'M');
 
 $opts = [
     'roots' => [
@@ -98,7 +91,7 @@ $opts = [
             'alias' => 'My Files',
             'mimeDetect' => 'internal',
             'tmbPath' => '.tmb',
-            'uploadMaxSize' => $uploadOpts['maxSize'],
+            'uploadMaxSize' => $uploadMaxSize,
             'attributes' => [
                 [
                     'pattern' => '/\.tmb$/',
