@@ -50,6 +50,10 @@ $settings = Capsule::table('tbladdonmodules')
 
 $storagePath = isset($settings['storage_path']) ? $settings['storage_path'] : 'client_files';
 $maxFileSize = isset($settings['max_file_size']) ? (int)$settings['max_file_size'] : 50;
+$defaultMaxStorage = isset($settings['default_max_storage']) ? (int)$settings['default_max_storage'] : 500;
+
+// Determine effective storage limit for this client
+$maxStorageMB = $access->max_storage_mb !== null ? $access->max_storage_mb : $defaultMaxStorage;
 
 $clientPath = $whmcsRoot . '/' . $storagePath . '/' . $clientId;
 
@@ -57,7 +61,33 @@ if (!is_dir($clientPath)) {
     mkdir($clientPath, 0755, true);
 }
 
+// Calculate current usage
+function getDirectorySize($dir) {
+    $size = 0;
+    if (!is_dir($dir)) return 0;
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)) as $file) {
+        $size += $file->getSize();
+    }
+    return $size;
+}
+
+$currentUsageBytes = getDirectorySize($clientPath);
+$currentUsageMB = $currentUsageBytes / 1024 / 1024;
+
+// Check if over quota (with 1MB buffer for rounding)
+$isOverQuota = ($maxStorageMB > 0 && $currentUsageMB >= ($maxStorageMB - 1));
+
 require_once __DIR__ . '/elfinder/php/autoload.php';
+
+// Build upload options
+$uploadOpts = [
+    'maxSize' => $maxFileSize . 'M',
+];
+
+// If over quota, set maxSize to 0 to disable uploads
+if ($isOverQuota) {
+    $uploadOpts['maxSize'] = 0;
+}
 
 $opts = [
     'roots' => [
@@ -68,7 +98,13 @@ $opts = [
             'alias' => 'My Files',
             'mimeDetect' => 'internal',
             'tmbPath' => '.tmb',
-            'uploadMaxSize' => $maxFileSize . 'M',
+            'uploadMaxSize' => $uploadOpts['maxSize'],
+            'attributes' => [
+                [
+                    'pattern' => '/\.tmb$/',
+                    'hidden' => true,
+                ],
+            ],
         ],
     ],
 ];

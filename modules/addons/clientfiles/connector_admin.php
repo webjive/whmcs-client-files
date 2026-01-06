@@ -41,6 +41,10 @@ $settings = Capsule::table('tbladdonmodules')
 
 $storagePath = isset($settings['storage_path']) ? $settings['storage_path'] : 'client_files';
 $maxFileSize = isset($settings['max_file_size']) ? (int)$settings['max_file_size'] : 50;
+$defaultMaxStorage = isset($settings['default_max_storage']) ? (int)$settings['default_max_storage'] : 500;
+
+// Determine effective storage limit for this client
+$maxStorageMB = $access->max_storage_mb !== null ? $access->max_storage_mb : $defaultMaxStorage;
 
 $clientPath = $whmcsRoot . '/' . $storagePath . '/' . $clientId;
 
@@ -60,6 +64,12 @@ $opts = [
             'mimeDetect' => 'internal',
             'tmbPath' => '.tmb',
             'uploadMaxSize' => $maxFileSize . 'M',
+            'attributes' => [
+                [
+                    'pattern' => '/\.tmb$/',
+                    'hidden' => true,
+                ],
+            ],
         ],
     ],
 ];

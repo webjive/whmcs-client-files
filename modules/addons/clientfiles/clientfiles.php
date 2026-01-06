@@ -2,6 +2,7 @@
 /**
  * Client Files Addon for WHMCS
  * Uses elFinder file manager (GPL)
+ * Version 2.1.0
  */
 
 if (!defined("WHMCS")) {
@@ -15,7 +16,7 @@ function clientfiles_config()
     return [
         'name' => 'Client Files',
         'description' => 'Allow clients to upload and manage files using elFinder file manager.',
-        'version' => '2.0.0',
+        'version' => '2.1.0',
         'author' => 'WebJIVE',
         'language' => 'english',
         'fields' => [
@@ -40,12 +41,12 @@ function clientfiles_config()
                 'Default' => 'pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,jpg,jpeg,png,gif,zip,rar',
                 'Description' => 'Comma-separated list of allowed file extensions',
             ],
-            'max_storage_per_client' => [
-                'FriendlyName' => 'Max Storage Per Client (MB)',
+            'default_max_storage' => [
+                'FriendlyName' => 'Default Max Storage (MB)',
                 'Type' => 'text',
                 'Size' => '10',
                 'Default' => '500',
-                'Description' => 'Maximum total storage per client (0 = unlimited)',
+                'Description' => 'Default maximum storage per client in MB (0 = unlimited). Can be overridden per client.',
             ],
         ],
     ];
@@ -59,8 +60,16 @@ function clientfiles_activate()
                 $table->increments('id');
                 $table->integer('client_id')->unique();
                 $table->tinyInteger('enabled')->default(1);
+                $table->integer('max_storage_mb')->nullable();
                 $table->timestamp('created_at')->useCurrent();
             });
+        } else {
+            // Add max_storage_mb column if it doesn't exist
+            if (!Capsule::schema()->hasColumn('mod_clientfiles_access', 'max_storage_mb')) {
+                Capsule::schema()->table('mod_clientfiles_access', function ($table) {
+                    $table->integer('max_storage_mb')->nullable()->after('enabled');
+                });
+            }
         }
 
         $storagePath = ROOTDIR . '/client_files';
@@ -82,6 +91,20 @@ function clientfiles_activate()
 function clientfiles_deactivate()
 {
     return ['status' => 'success', 'description' => 'Addon deactivated. Database tables preserved.'];
+}
+
+function clientfiles_upgrade($vars)
+{
+    $version = $vars['version'];
+    
+    // Upgrade to 2.1.0 - add max_storage_mb column
+    if (version_compare($version, '2.1.0', '<')) {
+        if (!Capsule::schema()->hasColumn('mod_clientfiles_access', 'max_storage_mb')) {
+            Capsule::schema()->table('mod_clientfiles_access', function ($table) {
+                $table->integer('max_storage_mb')->nullable()->after('enabled');
+            });
+        }
+    }
 }
 
 function clientfiles_output($vars)
@@ -107,6 +130,17 @@ function clientfiles_output($vars)
     if ($action === 'viewfiles' && $clientId > 0) {
         outputAdminFileBrowser($clientId, $vars);
         return;
+    }
+    
+    // Handle update storage limit
+    if ($action === 'updatelimit' && $clientId > 0) {
+        $newLimit = isset($_REQUEST['max_storage_mb']) ? (int)$_REQUEST['max_storage_mb'] : null;
+        if ($newLimit === 0) $newLimit = null; // Use global default
+        Capsule::table('mod_clientfiles_access')
+            ->where('client_id', $clientId)
+            ->update(['max_storage_mb' => $newLimit]);
+        header('Location: addonmodules.php?module=clientfiles&updated=' . $clientId);
+        exit;
     }
     
     // Default: show management interface
@@ -171,31 +205,65 @@ function outputAdminFileBrowser($clientId, $vars)
 
 function outputManagementPage($vars)
 {
+    $defaultMaxStorage = isset($vars['default_max_storage']) ? (int)$vars['default_max_storage'] : 500;
+    
+    // Show success message if limit was updated
+    if (isset($_GET['updated'])) {
+        echo '<div class="alert alert-success"><i class="fas fa-check"></i> Storage limit updated for client #' . (int)$_GET['updated'] . '</div>';
+    }
+    
     echo '<h2>Client Files Management</h2>';
-    echo '<p>This shows all clients who have a file area created. To create a file area for a client, visit their profile page.</p>';
+    echo '<p>Manage client file areas and storage limits. Default storage limit: <strong>' . ($defaultMaxStorage > 0 ? $defaultMaxStorage . ' MB' : 'Unlimited') . '</strong></p>';
     
     $clients = Capsule::table('mod_clientfiles_access')
         ->join('tblclients', 'mod_clientfiles_access.client_id', '=', 'tblclients.id')
         ->where('mod_clientfiles_access.enabled', 1)
-        ->select('tblclients.id', 'tblclients.firstname', 'tblclients.lastname', 'tblclients.email', 'mod_clientfiles_access.created_at')
+        ->select('tblclients.id', 'tblclients.firstname', 'tblclients.lastname', 'tblclients.email', 'mod_clientfiles_access.created_at', 'mod_clientfiles_access.max_storage_mb')
+        ->orderBy('tblclients.lastname')
         ->get();
     
     echo '<table class="table table-striped">';
-    echo '<thead><tr><th>Client</th><th>Email</th><th>Status</th><th>Storage</th><th>Actions</th></tr></thead>';
+    echo '<thead><tr><th>Client</th><th>Email</th><th>Storage Used</th><th>Storage Limit (MB)</th><th>Actions</th></tr></thead>';
     echo '<tbody>';
     
     foreach ($clients as $client) {
         $storagePath = ROOTDIR . '/' . $vars['storage_path'] . '/' . $client->id;
-        $size = getDirectorySize($storagePath);
+        $sizeBytes = getDirectorySize($storagePath);
+        $sizeMB = round($sizeBytes / 1024 / 1024, 2);
         
-        echo '<tr>';
-        echo '<td>' . htmlspecialchars($client->firstname . ' ' . $client->lastname) . '</td>';
+        // Determine effective limit
+        $effectiveLimit = $client->max_storage_mb !== null ? $client->max_storage_mb : $defaultMaxStorage;
+        $limitDisplay = $client->max_storage_mb !== null ? $client->max_storage_mb : '';
+        
+        // Calculate usage percentage
+        $usageClass = '';
+        if ($effectiveLimit > 0) {
+            $usagePercent = ($sizeMB / $effectiveLimit) * 100;
+            if ($usagePercent >= 90) {
+                $usageClass = 'danger';
+            } elseif ($usagePercent >= 75) {
+                $usageClass = 'warning';
+            }
+        }
+        
+        echo '<tr' . ($usageClass ? ' class="' . $usageClass . '"' : '') . '>';
+        echo '<td><a href="clientssummary.php?userid=' . $client->id . '">' . htmlspecialchars($client->firstname . ' ' . $client->lastname) . '</a></td>';
         echo '<td>' . htmlspecialchars($client->email) . '</td>';
-        echo '<td><span class="label label-success">Active</span></td>';
-        echo '<td>' . formatBytes($size) . '</td>';
+        echo '<td>' . formatBytes($sizeBytes) . '</td>';
         echo '<td>';
-        echo '<a href="addonmodules.php?module=clientfiles&action=viewfiles&client_id=' . $client->id . '" class="btn btn-sm btn-primary"><i class="fas fa-folder-open"></i> View Files</a> ';
-        echo '<a href="clientssummary.php?userid=' . $client->id . '" class="btn btn-sm btn-default"><i class="fas fa-user"></i> Summary</a>';
+        echo '<form method="post" action="addonmodules.php?module=clientfiles&action=updatelimit&client_id=' . $client->id . '" class="form-inline" style="display:inline;">';
+        echo '<input type="number" name="max_storage_mb" value="' . $limitDisplay . '" class="form-control" style="width:80px;" min="0" placeholder="' . $defaultMaxStorage . '">';
+        echo ' <button type="submit" class="btn btn-xs btn-default" title="Save"><i class="fas fa-save"></i></button>';
+        echo '</form>';
+        if ($effectiveLimit > 0) {
+            echo ' <small class="text-muted">(' . round($usagePercent, 1) . '% used)</small>';
+        } else {
+            echo ' <small class="text-muted">(unlimited)</small>';
+        }
+        echo '</td>';
+        echo '<td>';
+        echo '<a href="addonmodules.php?module=clientfiles&action=viewfiles&client_id=' . $client->id . '" class="btn btn-xs btn-primary" title="View Files"><i class="fas fa-folder-open"></i></a> ';
+        echo '<a href="clientssummary.php?userid=' . $client->id . '" class="btn btn-xs btn-default" title="Client Summary"><i class="fas fa-user"></i></a>';
         echo '</td>';
         echo '</tr>';
     }
