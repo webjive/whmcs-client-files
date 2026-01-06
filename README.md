@@ -137,18 +137,6 @@ Files are stored in:
 
 The storage directory is protected by a `.htaccess` file that denies direct web access. All file access is handled through the authenticated connectors.
 
-## Upgrading
-
-### From Version 1.x to 2.0
-
-1. Replace all addon files with the new version
-2. The addon will automatically add the `max_storage_mb` column on activation
-3. If upgrading from early 2.0 development versions, run this SQL to fix the setting name:
-   ```sql
-   UPDATE tbladdonmodules SET setting = 'default_max_storage' 
-   WHERE module = 'clientfiles' AND setting = 'max_storage_per_client';
-   ```
-
 ## Troubleshooting
 
 ### "File area not available" message for clients
@@ -170,10 +158,6 @@ The storage directory is protected by a `.htaccess` file that denies direct web 
 - Ensure the addon is activated
 - Check for JavaScript errors in browser console
 - Verify hooks.php is present in the addon folder
-
-### Global default not updating
-- Ensure the setting name in the database is `default_max_storage`
-- See Upgrading section for fix if needed
 
 ## License
 
