@@ -16,6 +16,8 @@ A professional file sharing addon for WHMCS that allows administrators to share 
 - **Per-client file areas** - each client gets their own private storage space
 - **Admin file browser** - view, upload, and download client files directly from admin
 - **Storage tracking** - see file counts and storage usage per client
+- **Global storage limits** - set a default storage limit for all clients
+- **Per-client storage limits** - override the default for individual clients
 - **One-click setup** - create file areas for clients with a single click
 - **Client Summary integration** - panel appears on the client summary page
 - **Automatic cleanup** - files are removed when a client is deleted
@@ -26,6 +28,7 @@ A professional file sharing addon for WHMCS that allows administrators to share 
 - **Per-client isolation** - clients can only access their own files
 - **Configurable file types** - restrict uploads to specific extensions
 - **File size limits** - set maximum upload sizes
+- **Storage quota enforcement** - uploads blocked when quota is reached
 
 ## Requirements
 
@@ -58,7 +61,7 @@ A professional file sharing addon for WHMCS that allows administrators to share 
    - **Storage Path**: Folder name for file storage (default: `client_files`)
    - **Max File Size**: Maximum upload size in MB (default: 50)
    - **Allowed Extensions**: Comma-separated list of allowed file types
-   - **Max Storage Per Client**: Storage limit per client in MB (0 = unlimited)
+   - **Default Max Storage**: Default storage limit per client in MB (default: 500, 0 = unlimited)
 
 ## Usage
 
@@ -78,6 +81,15 @@ A professional file sharing addon for WHMCS that allows administrators to share 
    - Create folders
    - Download files
    - Rename or delete items
+
+### Managing Storage Limits
+
+1. Go to **Addons > Client Files**
+2. Use the **Global Settings** panel to set the default storage limit
+3. In the client list, you can set custom limits per client:
+   - Leave blank = uses global default
+   - Enter a number = custom limit for that client
+   - Enter 0 = unlimited storage for that client
 
 ### Client Access
 
@@ -113,6 +125,7 @@ The addon creates one table:
 | id | INT | Primary key |
 | client_id | INT | WHMCS client ID |
 | enabled | TINYINT | 1 = active, 0 = disabled |
+| max_storage_mb | INT | Custom storage limit in MB (NULL = use default) |
 | created_at | TIMESTAMP | Creation date |
 
 ## Storage
@@ -123,6 +136,18 @@ Files are stored in:
 ```
 
 The storage directory is protected by a `.htaccess` file that denies direct web access. All file access is handled through the authenticated connectors.
+
+## Upgrading
+
+### From Version 1.x to 2.0
+
+1. Replace all addon files with the new version
+2. The addon will automatically add the `max_storage_mb` column on activation
+3. If upgrading from early 2.0 development versions, run this SQL to fix the setting name:
+   ```sql
+   UPDATE tbladdonmodules SET setting = 'default_max_storage' 
+   WHERE module = 'clientfiles' AND setting = 'max_storage_per_client';
+   ```
 
 ## Troubleshooting
 
@@ -139,11 +164,16 @@ The storage directory is protected by a `.htaccess` file that denies direct web 
 - Check `max_file_size` setting in addon configuration
 - Check PHP's `upload_max_filesize` and `post_max_size` settings
 - Verify storage directory is writable
+- Check if client has exceeded their storage quota
 
 ### Panel not appearing on client summary
 - Ensure the addon is activated
 - Check for JavaScript errors in browser console
 - Verify hooks.php is present in the addon folder
+
+### Global default not updating
+- Ensure the setting name in the database is `default_max_storage`
+- See Upgrading section for fix if needed
 
 ## License
 
@@ -160,6 +190,10 @@ For support, please contact WebJIVE at https://web-jive.com
 ### Version 2.0.0
 - Complete rebuild using elFinder file manager
 - Added admin file browser
+- Added global default storage limit setting
+- Added per-client storage limits (custom override or use default)
+- Storage quota enforcement - uploads blocked when limit reached
+- Visual indicators for storage usage and limit type
 - Improved WHMCS 8.x compatibility
 - Added client summary panel integration
 - Enhanced security with session-based authentication
