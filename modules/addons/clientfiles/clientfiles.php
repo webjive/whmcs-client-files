@@ -2,7 +2,7 @@
 /**
  * Client Files Addon for WHMCS
  * Uses elFinder file manager (GPL)
- * Version 2.0.0
+ * Version 2.1.0
  */
 
 if (!defined("WHMCS")) {
@@ -16,7 +16,7 @@ function clientfiles_config()
     return [
         'name' => 'Client Files',
         'description' => 'Allow clients to upload and manage files using elFinder file manager.',
-        'version' => '2.0.0',
+        'version' => '2.1.0',
         'author' => 'WebJIVE',
         'language' => 'english',
         'fields' => [
@@ -166,9 +166,76 @@ function outputAdminFileBrowser($clientId, $vars)
         return;
     }
     
+    // Get storage info
+    $access = Capsule::table('mod_clientfiles_access')
+        ->where('client_id', $clientId)
+        ->where('enabled', 1)
+        ->first();
+    
+    $defaultMaxStorage = getDefaultMaxStorage();
+    $isCustom = ($access && $access->max_storage_mb !== null);
+    $maxStorageMB = $isCustom ? (int)$access->max_storage_mb : $defaultMaxStorage;
+    
+    $storagePath = isset($vars['storage_path']) ? $vars['storage_path'] : 'client_files';
+    $clientPath = ROOTDIR . '/' . $storagePath . '/' . $clientId;
+    $usedBytes = getDirectorySize($clientPath);
+    $usedMB = round($usedBytes / 1024 / 1024, 2);
+    
+    $usagePercent = 0;
+    if ($maxStorageMB > 0) {
+        $usagePercent = round(($usedMB / $maxStorageMB) * 100, 1);
+    }
+    
     $clientName = htmlspecialchars($client->firstname . ' ' . $client->lastname);
     
     echo '<h2><i class="fas fa-folder-open"></i> Files for ' . $clientName . ' (#' . $clientId . ')</h2>';
+    
+    // Storage usage panel
+    echo '<div class="panel panel-default" style="margin-top:15px;">';
+    echo '<div class="panel-heading"><h3 class="panel-title"><i class="fas fa-hdd"></i> Storage Usage</h3></div>';
+    echo '<div class="panel-body">';
+    
+    // Progress bar
+    $barClass = 'progress-bar-success';
+    if ($usagePercent >= 90) {
+        $barClass = 'progress-bar-danger';
+    } elseif ($usagePercent >= 75) {
+        $barClass = 'progress-bar-warning';
+    }
+    
+    echo '<div class="row">';
+    echo '<div class="col-md-8">';
+    echo '<div class="progress" style="height:25px;margin-bottom:10px;">';
+    echo '<div class="progress-bar ' . $barClass . '" role="progressbar" style="width:' . min($usagePercent, 100) . '%;line-height:25px;">';
+    if ($usagePercent >= 10) {
+        echo $usagePercent . '%';
+    }
+    echo '</div>';
+    echo '</div>';
+    echo '</div>';
+    echo '<div class="col-md-4 text-right">';
+    echo '<strong>' . $usedMB . ' MB</strong> of ';
+    if ($maxStorageMB > 0) {
+        echo '<strong>' . $maxStorageMB . ' MB</strong>';
+    } else {
+        echo '<strong>Unlimited</strong>';
+    }
+    echo '</div>';
+    echo '</div>';
+    
+    // Limit info and link to settings
+    echo '<p class="text-muted" style="margin:0;">';
+    if ($isCustom) {
+        echo 'Custom limit set for this client. ';
+    } else {
+        echo 'Using global default limit. ';
+    }
+    echo '<a href="addonmodules.php?module=clientfiles">Manage storage limits</a>';
+    echo '</p>';
+    
+    echo '</div>';
+    echo '</div>';
+    
     echo '<p><a href="clientssummary.php?userid=' . $clientId . '" class="btn btn-default"><i class="fas fa-arrow-left"></i> Back to Client Summary</a></p>';
     
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.min.css">';
@@ -428,9 +495,22 @@ function clientfiles_clientarea($vars)
         ];
     }
     
+    // Get storage info
     $storagePath = ROOTDIR . '/' . $vars['storage_path'] . '/' . $clientId;
     if (!is_dir($storagePath)) {
         mkdir($storagePath, 0755, true);
+    }
+    
+    $defaultMaxStorage = getDefaultMaxStorage();
+    $isCustom = ($access->max_storage_mb !== null);
+    $maxStorageMB = $isCustom ? (int)$access->max_storage_mb : $defaultMaxStorage;
+    
+    $usedBytes = getDirectorySize($storagePath);
+    $usedMB = round($usedBytes / 1024 / 1024, 2);
+    
+    $usagePercent = 0;
+    if ($maxStorageMB > 0) {
+        $usagePercent = round(($usedMB / $maxStorageMB) * 100, 1);
     }
     
     return [
@@ -441,6 +521,9 @@ function clientfiles_clientarea($vars)
         'vars' => [
             'modulelink' => $vars['modulelink'],
             'client_id' => $clientId,
+            'used_mb' => $usedMB,
+            'max_storage_mb' => $maxStorageMB,
+            'usage_percent' => $usagePercent,
         ],
     ];
 }
