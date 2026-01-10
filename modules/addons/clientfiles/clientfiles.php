@@ -16,7 +16,7 @@ function clientfiles_config()
     return [
         'name' => 'Client Files',
         'description' => 'Allow clients to upload and manage files using elFinder file manager.',
-        'version' => '2.1.0',
+        'version' => '2.1.1',
         'author' => 'WebJIVE',
         'language' => 'english',
         'fields' => [
