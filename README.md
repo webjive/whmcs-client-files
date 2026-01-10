@@ -9,12 +9,14 @@ A professional file sharing addon for WHMCS that allows administrators to share 
 - **Drag and drop uploads** - simply drag files into the browser window
 - **Folder management** - create, rename, and organize folders
 - **File operations** - upload, download, rename, copy, move, and delete files
+- **Storage usage display** - visual progress bar showing used/total storage
 - **Thumbnail previews** for images
 - **Responsive interface** works on desktop and mobile devices
 
 ### Admin Area
 - **Per-client file areas** - each client gets their own private storage space
 - **Admin file browser** - view, upload, and download client files directly from admin
+- **Storage usage panel** - see storage used with visual progress bar
 - **Storage tracking** - see file counts and storage usage per client
 - **Global storage limits** - set a default storage limit for all clients
 - **Per-client storage limits** - override the default for individual clients
@@ -170,6 +172,12 @@ The elFinder file manager library is licensed under the 3-clause BSD license.
 For support, please contact WebJIVE at https://web-jive.com
 
 ## Changelog
+
+### Version 2.1.2
+- Added storage usage display to admin file browser with visual progress bar
+- Added storage usage display to client My Files page
+- Warning indicators when storage reaches 75% (yellow) and 90% (red)
+- Link to storage settings from admin file browser
 
 ### Version 2.0.0
 - Complete rebuild using elFinder file manager
