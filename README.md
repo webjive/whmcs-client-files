@@ -163,7 +163,7 @@ The storage directory is protected by a `.htaccess` file that denies direct web 
 
 ## License
 
-This addon is proprietary software by WebJIVE.
+This addon is licensed under the MIT License.
 
 The elFinder file manager library is licensed under the 3-clause BSD license.
 
