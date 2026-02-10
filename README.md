@@ -173,6 +173,9 @@ For support, please contact WebJIVE at https://web-jive.com
 
 ## Changelog
 
+### Version 2.1.3
+- Improved "Back to Client Summary" button visibility in admin file browser (btn-primary styling)
+
 ### Version 2.1.2
 - Added storage usage display to admin file browser with visual progress bar
 - Added storage usage display to client My Files page

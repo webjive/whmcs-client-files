@@ -16,7 +16,7 @@ function clientfiles_config()
     return [
         'name' => 'Client Files',
         'description' => 'Allow clients to upload and manage files using elFinder file manager.',
-        'version' => '2.1.2',
+        'version' => '2.1.3',
         'author' => 'WebJIVE',
         'language' => 'english',
         'fields' => [
@@ -236,7 +236,7 @@ function outputAdminFileBrowser($clientId, $vars)
     echo '</div>';
     echo '</div>';
     
-    echo '<p><a href="clientssummary.php?userid=' . $clientId . '" class="btn btn-default"><i class="fas fa-arrow-left"></i> Back to Client Summary</a></p>';
+    echo '<p style="margin-bottom:15px;"><a href="clientssummary.php?userid=' . $clientId . '" class="btn btn-primary"><i class="fas fa-arrow-left"></i> Back to Client Summary</a></p>';
     
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/themes/smoothness/jquery-ui.min.css">';
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/elfinder/2.1.64/css/elfinder.min.css">';
